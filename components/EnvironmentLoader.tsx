@@ -47,7 +47,7 @@ export class EnvironmentLoader {
     const finalArgs = {
       ...defaultArgs[type as keyof typeof defaultArgs],
       ...args,
-    };
+    } as Record<string, number>;
 
     switch (type) {
       case 'box':

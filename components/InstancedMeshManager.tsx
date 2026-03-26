@@ -20,6 +20,7 @@ export interface MeshConfig {
 export class InstancedMeshManager {
   private scene: THREE.Scene;
   private instancedMeshes: Map<string, THREE.InstancedMesh> = new Map();
+  private meshConfigs: Map<string, MeshConfig> = new Map();
   private count: number = 0;
 
   constructor(scene: THREE.Scene) {
@@ -55,6 +56,7 @@ export class InstancedMeshManager {
 
     this.scene.add(mesh);
     this.instancedMeshes.set(id, mesh);
+    this.meshConfigs.set(id, config);
     this.count += instanceCount;
 
     return mesh;
@@ -106,6 +108,7 @@ export class InstancedMeshManager {
         mesh.material.dispose();
       }
       this.instancedMeshes.delete(id);
+      this.meshConfigs.delete(id);
     }
   }
 
@@ -120,6 +123,7 @@ export class InstancedMeshManager {
       }
     });
     this.instancedMeshes.clear();
+    this.meshConfigs.clear();
     this.count = 0;
   }
 
@@ -129,6 +133,56 @@ export class InstancedMeshManager {
 
   getAllMeshes(): Map<string, THREE.InstancedMesh> {
     return this.instancedMeshes;
+  }
+
+  getInstanceInfo(
+    meshId: string,
+    instanceIndex: number,
+  ): {
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
+  } | null {
+    const mesh = this.instancedMeshes.get(meshId);
+    if (!mesh) return null;
+
+    const matrix = new THREE.Matrix4();
+    mesh.getMatrixAt(instanceIndex, matrix);
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+
+    matrix.decompose(position, quaternion, scale);
+    const euler = new THREE.Euler().setFromQuaternion(quaternion, 'XYZ');
+
+    return {
+      position: [position.x, position.y, position.z],
+      rotation: [euler.x, euler.y, euler.z],
+      scale: [scale.x, scale.y, scale.z],
+    };
+  }
+
+  getMeshConfig(meshId: string): MeshConfig | undefined {
+    return this.meshConfigs.get(meshId);
+  }
+
+  getAllMeshesWithInstance(): Array<{
+    meshId: string;
+    mesh: THREE.InstancedMesh;
+    config: MeshConfig;
+  }> {
+    const result: Array<{
+      meshId: string;
+      mesh: THREE.InstancedMesh;
+      config: MeshConfig;
+    }> = [];
+    for (const [meshId, mesh] of this.instancedMeshes) {
+      const config = this.meshConfigs.get(meshId);
+      if (config) {
+        result.push({ meshId, mesh, config });
+      }
+    }
+    return result;
   }
 }
 

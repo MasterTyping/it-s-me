@@ -1,27 +1,29 @@
 'use client';
 
 import { Canvas } from '@react-three/fiber';
-import { PerspectiveCamera } from '@react-three/drei';
-import Environment from './Environment';
-import { PlayerController } from './PlayerController';
+import {
+  PerspectiveCamera,
+  OrbitControls,
+  CameraControls,
+} from '@react-three/drei';
+import { RobotMesh } from './RobotModel';
 
 export default function Scene() {
   return (
     <Canvas shadows>
-      <PerspectiveCamera makeDefault position={[15, 2, 15]} />
-      <PlayerController />
+      <PerspectiveCamera makeDefault position={[1, 1, 1]} />
+      <CameraControls />
 
       <ambientLight intensity={0.6} />
       <directionalLight
         position={[10, 10, 10]}
         intensity={1}
         castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
+        shadow-mapSize-width={256}
+        shadow-mapSize-height={256}
       />
-
-      <Environment />
-      <gridHelper args={[20, 20]} />
+      <RobotMesh></RobotMesh>
+      <gridHelper args={[200, 200]} />
     </Canvas>
   );
 }

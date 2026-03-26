@@ -16,7 +16,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "three": "^0.183.2",
-    "three-urdf-loader": "file:./three-urdf-loader-v0.0.35.tgz"
+    "three-urdf-loader": "file:./three-urdf-loader-v0.0.37.tgz"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
