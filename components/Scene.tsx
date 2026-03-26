@@ -1,14 +1,15 @@
 'use client';
 
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
+import { PerspectiveCamera } from '@react-three/drei';
 import Environment from './Environment';
+import { PlayerController } from './PlayerController';
 
 export default function Scene() {
   return (
     <Canvas shadows>
-      <PerspectiveCamera makeDefault position={[15, 10, 15]} />
-      <OrbitControls />
+      <PerspectiveCamera makeDefault position={[15, 2, 15]} />
+      <PlayerController />
 
       <ambientLight intensity={0.6} />
       <directionalLight
