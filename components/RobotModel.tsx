@@ -1,9 +1,7 @@
-import { useFrame } from "@react-three/fiber";
 import { useCallback, useRef, useState } from "react";
 import * as THREE from "three";
 import {
   IKSolveResult,
-  IKSolver,
   ThreeJSURDFModel,
   URDFIKControls,
   URDFModel,
@@ -37,6 +35,8 @@ interface RobotMeshProps {
   onError?: (error: string) => void;
   /** 드래그 상태 변경 콜백 (카메라 컨트롤 제어용) */
   onDragStateChange?: (isDragging: boolean) => void;
+  /** 외부 UI(슬라이더)에서 제어하는 joint 값 */
+  jointValues?: Record<string, number>;
 }
 
 export function RobotMesh({
@@ -44,18 +44,11 @@ export function RobotMesh({
   onLoadComplete,
   onError,
   onDragStateChange,
+  jointValues,
 }: RobotMeshProps) {
   const modelRef = useRef<URDFModelRef>(null);
-  const solverRef = useRef<IKSolver>(
-    new IKSolver(ROBOT_CONFIG.ikSolverOptions),
-  );
 
   const [robotModel, setRobotModel] = useState<ThreeJSURDFModel | null>(null);
-  const [ikResult, setIkResult] = useState<IKSolveResult | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [loadingProgress, setLoadingProgress] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   /**
    * 로봇 모델 로드 핸들러
@@ -75,8 +68,6 @@ export function RobotMesh({
       loadedModel.updateMatrixWorld(true);
 
       setRobotModel(loadedModel);
-      setIsLoading(false);
-      setError(null);
 
       console.log(
         `[RobotMesh] Robot model loaded: ${ROBOT_CONFIG.urdfUrl}`,
@@ -99,7 +90,6 @@ export function RobotMesh({
    */
   const handleSolve = useCallback(
     (result: IKSolveResult) => {
-      setIkResult(result);
       const status = result.success
         ? "✓ Success"
         : `✗ Failed (error: ${result.error.toFixed(4)})`;
@@ -116,7 +106,6 @@ export function RobotMesh({
    * 드래그 시작 핸들러
    */
   const handleDragStart = useCallback(() => {
-    setIsDragging(true);
     onDragStateChange?.(true);
     console.log("[RobotMesh] IK drag started");
   }, [onDragStateChange]);
@@ -125,7 +114,6 @@ export function RobotMesh({
    * 드래그 종료 핸들러
    */
   const handleDragEnd = useCallback(() => {
-    setIsDragging(false);
     onDragStateChange?.(false);
     console.log("[RobotMesh] IK drag ended");
   }, [onDragStateChange]);
@@ -136,8 +124,6 @@ export function RobotMesh({
   const handleError = useCallback(
     (errorMessage: string) => {
       const msg = `Failed to load robot model: ${errorMessage}`;
-      setError(msg);
-      setIsLoading(false);
       console.error("[RobotMesh]", msg);
       onError?.(msg);
     },
@@ -150,10 +136,8 @@ export function RobotMesh({
       <URDFModel
         ref={modelRef}
         url={ROBOT_CONFIG.urdfUrl}
+        jointValues={jointValues}
         onLoad={handleLoad}
-        onProgress={(progress) => {
-          setLoadingProgress(progress);
-        }}
         onError={handleError}
       />
 
@@ -170,6 +154,7 @@ export function RobotMesh({
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
           followEndEffectorWhileDragging={true}
+          draggingFollowLerp={0.5}
         />
       )}
     </>
