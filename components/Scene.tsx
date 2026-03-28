@@ -4,7 +4,7 @@ import { Canvas } from "@react-three/fiber";
 import { PerspectiveCamera, CameraControls } from "@react-three/drei";
 import { useEffect, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Box3, Material, Mesh, Sphere, Vector3 } from "three";
+import { Box3, Material, Mesh, PCFShadowMap, Sphere, Vector3 } from "three";
 import { IKSolveResult, ThreeJSURDFModel } from "three-urdf-loader";
 import { RobotMesh } from "./RobotModel";
 import {
@@ -20,7 +20,9 @@ import {
 } from "../shader/scanline";
 
 const END_EFFECTOR_NAME = "kuka_arm_7_link";
-const COLLISION_CONTACT_EPSILON = 0.03;
+const DEFAULT_COLLISION_CONTACT_EPSILON = 0.03;
+
+type CollisionLinkScope = "all" | "endEffector";
 
 function cloneJointValues(
   values: Record<string, number>,
@@ -62,6 +64,9 @@ function buildInitialPose(model: ThreeJSURDFModel): Record<string, number> {
 interface CollisionAwarePrimitiveProps {
   objects: ScenePrimitiveObject[];
   robotModel: ThreeJSURDFModel | null;
+  collisionContactEpsilon: number;
+  collisionLinkScope: CollisionLinkScope;
+  endEffectorName: string;
 }
 
 type HologramMaterial = Material & {
@@ -132,9 +137,41 @@ function collectRobotHologramMaterials(
   return [...materials];
 }
 
+function collectCollisionMeshes(
+  robotModel: ThreeJSURDFModel,
+  scope: CollisionLinkScope,
+  endEffectorName: string,
+): Mesh[] {
+  const root =
+    scope === "endEffector"
+      ? (robotModel.getLinkByName(endEffectorName) ?? robotModel)
+      : robotModel;
+  const meshes: Mesh[] = [];
+
+  root.traverse((node) => {
+    const meshNode = node as Mesh;
+    if (!meshNode.isMesh || !meshNode.geometry) {
+      return;
+    }
+
+    if (!meshNode.geometry.boundingBox) {
+      meshNode.geometry.computeBoundingBox();
+    }
+
+    if (meshNode.geometry.boundingBox) {
+      meshes.push(meshNode);
+    }
+  });
+
+  return meshes;
+}
+
 function RobotCollisionShaderController({
   objects,
   robotModel,
+  collisionContactEpsilon,
+  collisionLinkScope,
+  endEffectorName,
 }: CollisionAwarePrimitiveProps) {
   const objectPos = useRef(new Vector3());
   const robotMeshBounds = useRef(new Box3());
@@ -143,6 +180,7 @@ function RobotCollisionShaderController({
   const closestOnRobot = useRef(new Vector3());
   const collisionCenter = useRef(new Vector3());
   const hologramMaterialsRef = useRef<HologramMaterial[]>([]);
+  const collisionMeshesRef = useRef<Mesh[]>([]);
   const collisionStateRef = useRef(false);
 
   useEffect(() => {
@@ -153,24 +191,35 @@ function RobotCollisionShaderController({
 
     if (!robotModel) {
       hologramMaterialsRef.current = [];
+      collisionMeshesRef.current = [];
       return;
     }
 
     hologramMaterialsRef.current = collectRobotHologramMaterials(robotModel);
+    collisionMeshesRef.current = collectCollisionMeshes(
+      robotModel,
+      collisionLinkScope,
+      endEffectorName,
+    );
 
     return () => {
       for (const material of hologramMaterialsRef.current) {
         disableHologram(material);
       }
       hologramMaterialsRef.current = [];
+      collisionMeshesRef.current = [];
       collisionStateRef.current = false;
     };
-  }, [robotModel]);
+  }, [robotModel, collisionLinkScope, endEffectorName]);
 
   useFrame(({ clock }) => {
     updateHologramTime(clock.getElapsedTime());
 
-    if (!robotModel || objects.length === 0) {
+    if (
+      !robotModel ||
+      objects.length === 0 ||
+      collisionMeshesRef.current.length === 0
+    ) {
       if (collisionStateRef.current) {
         for (const material of hologramMaterialsRef.current) {
           disableHologram(material);
@@ -184,7 +233,7 @@ function RobotCollisionShaderController({
 
     let isCollisionExpected = false;
     let closestDistance = Number.POSITIVE_INFINITY;
-    let closestRadius = COLLISION_CONTACT_EPSILON;
+    let closestRadius = collisionContactEpsilon;
 
     for (const object of objects) {
       objectPos.current.set(...object.position);
@@ -192,9 +241,9 @@ function RobotCollisionShaderController({
 
       if (object.type === "sphere") {
         objectSphere.current.center.copy(objectPos.current);
-        objectSphere.current.radius = half + COLLISION_CONTACT_EPSILON;
+        objectSphere.current.radius = half + collisionContactEpsilon;
       } else if (object.type === "box") {
-        const expandedHalf = half + COLLISION_CONTACT_EPSILON;
+        const expandedHalf = half + collisionContactEpsilon;
         objectBounds.current.min.set(
           objectPos.current.x - expandedHalf,
           objectPos.current.y - expandedHalf,
@@ -206,8 +255,8 @@ function RobotCollisionShaderController({
           objectPos.current.z + expandedHalf,
         );
       } else {
-        const radius = half + COLLISION_CONTACT_EPSILON;
-        const halfHeight = half + COLLISION_CONTACT_EPSILON;
+        const radius = half + collisionContactEpsilon;
+        const halfHeight = half + collisionContactEpsilon;
         objectBounds.current.min.set(
           objectPos.current.x - radius,
           objectPos.current.y - halfHeight,
@@ -220,20 +269,7 @@ function RobotCollisionShaderController({
         );
       }
 
-      robotModel.traverse((node) => {
-        const meshNode = node as Mesh;
-        if (!meshNode.isMesh || !meshNode.geometry) {
-          return;
-        }
-
-        if (!meshNode.geometry.boundingBox) {
-          meshNode.geometry.computeBoundingBox();
-        }
-
-        if (!meshNode.geometry.boundingBox) {
-          return;
-        }
-
+      for (const meshNode of collisionMeshesRef.current) {
         robotMeshBounds.current
           .copy(meshNode.geometry.boundingBox)
           .applyMatrix4(meshNode.matrixWorld);
@@ -244,7 +280,7 @@ function RobotCollisionShaderController({
             : robotMeshBounds.current.intersectsBox(objectBounds.current);
 
         if (!intersects) {
-          return;
+          continue;
         }
 
         isCollisionExpected = true;
@@ -257,9 +293,11 @@ function RobotCollisionShaderController({
         if (distance < closestDistance) {
           closestDistance = distance;
           collisionCenter.current.copy(closestOnRobot.current);
-          closestRadius = Math.max(half + COLLISION_CONTACT_EPSILON, 0.1);
+          closestRadius = Math.max(half + collisionContactEpsilon, 0.1);
         }
-      });
+
+        break;
+      }
 
       if (isCollisionExpected) {
         break;
@@ -302,6 +340,11 @@ export default function Scene() {
     Record<string, number>
   >({});
   const [objects, setObjects] = useState<ScenePrimitiveObject[]>([]);
+  const [collisionContactEpsilon, setCollisionContactEpsilon] = useState(
+    DEFAULT_COLLISION_CONTACT_EPSILON,
+  );
+  const [collisionLinkScope, setCollisionLinkScope] =
+    useState<CollisionLinkScope>("all");
 
   const handleRobotLoad = (model: ThreeJSURDFModel) => {
     setRobotModel(model);
@@ -333,7 +376,7 @@ export default function Scene() {
 
   return (
     <div className="relative h-full w-full">
-      <Canvas shadows>
+      <Canvas shadows={{ type: PCFShadowMap }}>
         <PerspectiveCamera makeDefault position={[1, 1, 1]} />
         <CameraControls ref={cameraControlsRef} />
 
@@ -356,6 +399,9 @@ export default function Scene() {
         <RobotCollisionShaderController
           robotModel={robotModel}
           objects={objects}
+          collisionContactEpsilon={collisionContactEpsilon}
+          collisionLinkScope={collisionLinkScope}
+          endEffectorName={END_EFFECTOR_NAME}
         />
 
         {objects.map((object) => (
@@ -393,6 +439,10 @@ export default function Scene() {
         onJointValueChange={(name, value) => {
           setJointValues((prev) => ({ ...prev, [name]: value }));
         }}
+        collisionContactEpsilon={collisionContactEpsilon}
+        collisionLinkScope={collisionLinkScope}
+        onCollisionContactEpsilonChange={setCollisionContactEpsilon}
+        onCollisionLinkScopeChange={setCollisionLinkScope}
         onResetPose={() => {
           const resetValues = cloneJointValues(initialJointValues);
           setJointValues(resetValues);

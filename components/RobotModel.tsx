@@ -67,9 +67,6 @@ export function RobotMesh({
       const status = result.success
         ? "✓ Success"
         : `✗ Failed (error: ${result.error.toFixed(4)})`;
-      console.log(
-        `[RobotMesh] IK Solve ${status} | Iterations: ${result.iterations}`,
-      );
 
       onIKSolve?.(result);
     },
@@ -78,12 +75,10 @@ export function RobotMesh({
 
   const handleDragStart = useCallback(() => {
     onDragStateChange?.(true);
-    console.log("[RobotMesh] IK drag started");
   }, [onDragStateChange]);
 
   const handleDragEnd = useCallback(() => {
     onDragStateChange?.(false);
-    console.log("[RobotMesh] IK drag ended");
   }, [onDragStateChange]);
 
   return (
@@ -107,7 +102,8 @@ export function RobotMesh({
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
           followEndEffectorWhileDragging={true}
-          draggingFollowLerp={0.5}
+          solveOrientation={false}
+          dragResponse={0.1}
         />
       )}
     </>

@@ -11,6 +11,10 @@ interface RobotInfoPanelProps {
   endEffectorName: string;
   jointValues: Record<string, number>;
   onJointValueChange: (jointName: string, value: number) => void;
+  collisionContactEpsilon: number;
+  collisionLinkScope: "all" | "endEffector";
+  onCollisionContactEpsilonChange: (value: number) => void;
+  onCollisionLinkScopeChange: (scope: "all" | "endEffector") => void;
   onResetPose: () => void;
 }
 
@@ -62,6 +66,10 @@ export function RobotInfoPanel({
   endEffectorName,
   jointValues,
   onJointValueChange,
+  collisionContactEpsilon,
+  collisionLinkScope,
+  onCollisionContactEpsilonChange,
+  onCollisionLinkScopeChange,
   onResetPose,
 }: RobotInfoPanelProps) {
   const [angleUnit, setAngleUnit] = useState<"rad" | "deg">("rad");
@@ -323,6 +331,48 @@ export function RobotInfoPanel({
           </div>
         </div>
       )}
+
+      <div className="mt-3 rounded-md border border-white/15 p-2">
+        <h3 className="mb-2 text-[11px] font-medium text-gray-300">
+          Collision Detection
+        </h3>
+
+        <label className="mb-2 block text-[11px] text-gray-300">
+          <span className="mb-1 block text-gray-400">Target Links</span>
+          <select
+            className="w-full rounded border border-white/20 bg-black/50 px-2 py-1 text-gray-100"
+            value={collisionLinkScope}
+            onChange={(event) => {
+              onCollisionLinkScopeChange(
+                event.target.value as "all" | "endEffector",
+              );
+            }}
+          >
+            <option value="all">All Robot Links</option>
+            <option value="endEffector">End Effector Link Only</option>
+          </select>
+        </label>
+
+        <label className="block text-[11px] text-gray-300">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="text-gray-400">Contact Epsilon</span>
+            <span className="text-gray-200">
+              {collisionContactEpsilon.toFixed(3)} m
+            </span>
+          </div>
+          <input
+            className="w-full"
+            type="range"
+            min={0}
+            max={0.2}
+            step={0.005}
+            value={collisionContactEpsilon}
+            onChange={(event) => {
+              onCollisionContactEpsilonChange(Number(event.target.value));
+            }}
+          />
+        </label>
+      </div>
 
       {errorMessage && (
         <p className="mt-3 rounded-md border border-red-300/50 bg-red-900/30 p-2 text-[11px] text-red-100">
