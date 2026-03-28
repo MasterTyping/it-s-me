@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Vector3 } from "three";
 import { IKSolveResult, ThreeJSURDFModel } from "three-urdf-loader";
+import { FloatingPanel } from "./FloatingPanel";
 
 interface RobotInfoPanelProps {
   model: ThreeJSURDFModel | null;
@@ -64,6 +65,9 @@ export function RobotInfoPanel({
   onResetPose,
 }: RobotInfoPanelProps) {
   const [angleUnit, setAngleUnit] = useState<"rad" | "deg">("rad");
+  const [groupOpenState, setGroupOpenState] = useState<Record<string, boolean>>(
+    {},
+  );
 
   const summary = useMemo(() => {
     if (!model) {
@@ -94,7 +98,7 @@ export function RobotInfoPanel({
       endEffectorPosition: positionText,
       activeJointValues: jointValues,
     };
-  }, [model, endEffectorName, lastIKResult]);
+  }, [model, endEffectorName]);
 
   const jointSliders = useMemo<JointSliderInfo[]>(() => {
     if (!model) {
@@ -106,13 +110,15 @@ export function RobotInfoPanel({
         return joint.type === "revolute" || joint.type === "prismatic";
       })
       .map((joint) => {
-        const isPrismatic = joint.type === "prismatic";
+        const type: JointSliderInfo["type"] =
+          joint.type === "prismatic" ? "prismatic" : "revolute";
+        const isPrismatic = type === "prismatic";
         const lower = joint.limit?.lower;
         const upper = joint.limit?.upper;
 
         return {
           name: joint.name,
-          type: joint.type,
+          type,
           min: Number.isFinite(lower) ? lower! : isPrismatic ? -0.2 : -Math.PI,
           max: Number.isFinite(upper) ? upper! : isPrismatic ? 0.2 : Math.PI,
           step: isPrismatic ? 0.001 : 0.01,
@@ -136,9 +142,10 @@ export function RobotInfoPanel({
   const useDegree = angleUnit === "deg";
 
   return (
-    <aside className="absolute right-4 top-4 z-20 w-80 rounded-xl border border-white/20 bg-black/70 p-4 text-xs text-white backdrop-blur-sm">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">Robot Info Panel</h2>
+    <FloatingPanel
+      title="Robot Info Panel"
+      initialRect={{ x: 16, y: 16, width: 360, height: 640 }}
+      headerActions={
         <button
           type="button"
           onClick={onResetPose}
@@ -146,8 +153,8 @@ export function RobotInfoPanel({
         >
           Reset Pose
         </button>
-      </div>
-
+      }
+    >
       <div className="space-y-1 text-gray-200">
         <p>
           <span className="text-gray-400">Robot:</span> {summary.robotName}
@@ -223,77 +230,96 @@ export function RobotInfoPanel({
             </div>
           </div>
 
-          <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
-            {groupedJointSliders.map(([groupName, joints]) => (
-              <div
-                key={groupName}
-                className="rounded border border-white/10 p-2"
-              >
-                <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                  {groupName}
-                </h4>
-                <div className="space-y-2">
-                  {joints.map((joint) => {
-                    const rawValue = jointValues[joint.name] ?? 0;
-                    const displayValue = toDisplayValue(
-                      rawValue,
-                      joint.type,
-                      useDegree,
-                    );
-                    const min = toDisplayValue(
-                      joint.min,
-                      joint.type,
-                      useDegree,
-                    );
-                    const max = toDisplayValue(
-                      joint.max,
-                      joint.type,
-                      useDegree,
-                    );
-                    const step =
-                      joint.type === "revolute" && useDegree
-                        ? Math.max(joint.step * RAD_TO_DEG, 0.1)
-                        : joint.step;
-                    const unitLabel =
-                      joint.type === "revolute"
-                        ? useDegree
-                          ? "deg"
-                          : "rad"
-                        : "m";
+          <div className="scrollbar-dark max-h-56 space-y-2 overflow-y-auto pr-1">
+            {groupedJointSliders.map(([groupName, joints]) => {
+              const isOpen = groupOpenState[groupName] ?? true;
 
-                    return (
-                      <label key={joint.name} className="block text-[11px]">
-                        <div className="mb-1 flex items-center justify-between gap-2">
-                          <span className="truncate text-gray-400">
-                            {joint.name}
-                          </span>
-                          <span className="text-gray-200">
-                            {displayValue.toFixed(3)} {unitLabel}
-                          </span>
-                        </div>
-                        <input
-                          className="w-full"
-                          type="range"
-                          min={min}
-                          max={max}
-                          step={step}
-                          value={displayValue}
-                          onChange={(event) => {
-                            const nextDisplayValue = Number(event.target.value);
-                            const nextModelValue = toModelValue(
-                              nextDisplayValue,
-                              joint.type,
-                              useDegree,
-                            );
-                            onJointValueChange(joint.name, nextModelValue);
-                          }}
-                        />
-                      </label>
-                    );
-                  })}
+              return (
+                <div
+                  key={groupName}
+                  className="rounded border border-white/10 p-2"
+                >
+                  <button
+                    type="button"
+                    className="mb-2 flex w-full items-center justify-between text-left text-[10px] font-semibold uppercase tracking-wide text-gray-400"
+                    onClick={() => {
+                      setGroupOpenState((prev) => ({
+                        ...prev,
+                        [groupName]: !(prev[groupName] ?? true),
+                      }));
+                    }}
+                  >
+                    <span>{groupName}</span>
+                    <span className="text-gray-500">{isOpen ? "-" : "+"}</span>
+                  </button>
+
+                  {isOpen && (
+                    <div className="space-y-2">
+                      {joints.map((joint) => {
+                        const rawValue = jointValues[joint.name] ?? 0;
+                        const displayValue = toDisplayValue(
+                          rawValue,
+                          joint.type,
+                          useDegree,
+                        );
+                        const min = toDisplayValue(
+                          joint.min,
+                          joint.type,
+                          useDegree,
+                        );
+                        const max = toDisplayValue(
+                          joint.max,
+                          joint.type,
+                          useDegree,
+                        );
+                        const step =
+                          joint.type === "revolute" && useDegree
+                            ? Math.max(joint.step * RAD_TO_DEG, 0.1)
+                            : joint.step;
+                        const unitLabel =
+                          joint.type === "revolute"
+                            ? useDegree
+                              ? "deg"
+                              : "rad"
+                            : "m";
+
+                        return (
+                          <label key={joint.name} className="block text-[11px]">
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <span className="truncate text-gray-400">
+                                {joint.name}
+                              </span>
+                              <span className="text-gray-200">
+                                {displayValue.toFixed(3)} {unitLabel}
+                              </span>
+                            </div>
+                            <input
+                              className="w-full"
+                              type="range"
+                              min={min}
+                              max={max}
+                              step={step}
+                              value={displayValue}
+                              onChange={(event) => {
+                                const nextDisplayValue = Number(
+                                  event.target.value,
+                                );
+                                const nextModelValue = toModelValue(
+                                  nextDisplayValue,
+                                  joint.type,
+                                  useDegree,
+                                );
+                                onJointValueChange(joint.name, nextModelValue);
+                              }}
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -303,6 +329,6 @@ export function RobotInfoPanel({
           {errorMessage}
         </p>
       )}
-    </aside>
+    </FloatingPanel>
   );
 }

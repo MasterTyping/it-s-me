@@ -2,12 +2,25 @@
 
 import { Canvas } from "@react-three/fiber";
 import { PerspectiveCamera, CameraControls } from "@react-three/drei";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useFrame } from "@react-three/fiber";
+import { Box3, Material, Mesh, Sphere, Vector3 } from "three";
 import { IKSolveResult, ThreeJSURDFModel } from "three-urdf-loader";
 import { RobotMesh } from "./RobotModel";
+import {
+  ObjectAddPanel,
+  ScenePrimitiveObject,
+} from "./UI/panel/ObjectAddPanel";
 import { RobotInfoPanel } from "./UI/panel/RobotInfoPanel";
+import {
+  onBeforeCompileHologram,
+  setHologramCircleCenter,
+  setHologramCircleRadius,
+  updateHologramTime,
+} from "../shader/scanline";
 
 const END_EFFECTOR_NAME = "kuka_arm_7_link";
+const COLLISION_CONTACT_EPSILON = 0.03;
 
 function cloneJointValues(
   values: Record<string, number>,
@@ -46,6 +59,238 @@ function buildInitialPose(model: ThreeJSURDFModel): Record<string, number> {
   return result;
 }
 
+interface CollisionAwarePrimitiveProps {
+  objects: ScenePrimitiveObject[];
+  robotModel: ThreeJSURDFModel | null;
+}
+
+type HologramMaterial = Material & {
+  onBeforeCompile: (shaderObject: any, renderer: any) => void;
+  customProgramCacheKey?: (() => string) | undefined;
+  userData: {
+    _hologramEnabled?: boolean;
+    _originalOnBeforeCompile?:
+      | ((shaderObject: any, renderer: any) => void)
+      | null;
+    _originalProgramCacheKey?: (() => string) | null;
+  };
+};
+
+function enableHologram(material: HologramMaterial) {
+  if (material.userData._hologramEnabled) {
+    return;
+  }
+
+  material.userData._originalOnBeforeCompile = material.onBeforeCompile;
+  material.userData._originalProgramCacheKey = material.customProgramCacheKey;
+  material.onBeforeCompile = onBeforeCompileHologram;
+  material.customProgramCacheKey = () => "scanline-hologram-v1";
+  material.userData._hologramEnabled = true;
+  material.needsUpdate = true;
+}
+
+function disableHologram(material: HologramMaterial) {
+  if (!material.userData._hologramEnabled) {
+    return;
+  }
+
+  material.onBeforeCompile =
+    material.userData._originalOnBeforeCompile ?? (() => {});
+  material.customProgramCacheKey =
+    material.userData._originalProgramCacheKey ?? undefined;
+  material.userData._hologramEnabled = false;
+  material.needsUpdate = true;
+}
+
+function collectRobotHologramMaterials(
+  robotModel: ThreeJSURDFModel,
+): HologramMaterial[] {
+  const materials = new Set<HologramMaterial>();
+
+  robotModel.traverse((node) => {
+    const meshNode = node as Mesh;
+    if (!meshNode.isMesh || !meshNode.material) {
+      return;
+    }
+
+    const arr = Array.isArray(meshNode.material)
+      ? meshNode.material
+      : [meshNode.material];
+
+    for (const material of arr) {
+      const maybe = material as Partial<HologramMaterial>;
+      if (
+        maybe &&
+        typeof maybe.onBeforeCompile === "function" &&
+        maybe.userData
+      ) {
+        materials.add(maybe as HologramMaterial);
+      }
+    }
+  });
+
+  return [...materials];
+}
+
+function RobotCollisionShaderController({
+  objects,
+  robotModel,
+}: CollisionAwarePrimitiveProps) {
+  const objectPos = useRef(new Vector3());
+  const robotMeshBounds = useRef(new Box3());
+  const objectBounds = useRef(new Box3());
+  const objectSphere = useRef(new Sphere());
+  const closestOnRobot = useRef(new Vector3());
+  const collisionCenter = useRef(new Vector3());
+  const hologramMaterialsRef = useRef<HologramMaterial[]>([]);
+  const collisionStateRef = useRef(false);
+
+  useEffect(() => {
+    const prevMaterials = hologramMaterialsRef.current;
+    for (const material of prevMaterials) {
+      disableHologram(material);
+    }
+
+    if (!robotModel) {
+      hologramMaterialsRef.current = [];
+      return;
+    }
+
+    hologramMaterialsRef.current = collectRobotHologramMaterials(robotModel);
+
+    return () => {
+      for (const material of hologramMaterialsRef.current) {
+        disableHologram(material);
+      }
+      hologramMaterialsRef.current = [];
+      collisionStateRef.current = false;
+    };
+  }, [robotModel]);
+
+  useFrame(({ clock }) => {
+    updateHologramTime(clock.getElapsedTime());
+
+    if (!robotModel || objects.length === 0) {
+      if (collisionStateRef.current) {
+        for (const material of hologramMaterialsRef.current) {
+          disableHologram(material);
+        }
+        collisionStateRef.current = false;
+      }
+      return;
+    }
+
+    robotModel.updateMatrixWorld(true);
+
+    let isCollisionExpected = false;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    let closestRadius = COLLISION_CONTACT_EPSILON;
+
+    for (const object of objects) {
+      objectPos.current.set(...object.position);
+      const half = object.size / 2;
+
+      if (object.type === "sphere") {
+        objectSphere.current.center.copy(objectPos.current);
+        objectSphere.current.radius = half + COLLISION_CONTACT_EPSILON;
+      } else if (object.type === "box") {
+        const expandedHalf = half + COLLISION_CONTACT_EPSILON;
+        objectBounds.current.min.set(
+          objectPos.current.x - expandedHalf,
+          objectPos.current.y - expandedHalf,
+          objectPos.current.z - expandedHalf,
+        );
+        objectBounds.current.max.set(
+          objectPos.current.x + expandedHalf,
+          objectPos.current.y + expandedHalf,
+          objectPos.current.z + expandedHalf,
+        );
+      } else {
+        const radius = half + COLLISION_CONTACT_EPSILON;
+        const halfHeight = half + COLLISION_CONTACT_EPSILON;
+        objectBounds.current.min.set(
+          objectPos.current.x - radius,
+          objectPos.current.y - halfHeight,
+          objectPos.current.z - radius,
+        );
+        objectBounds.current.max.set(
+          objectPos.current.x + radius,
+          objectPos.current.y + halfHeight,
+          objectPos.current.z + radius,
+        );
+      }
+
+      robotModel.traverse((node) => {
+        const meshNode = node as Mesh;
+        if (!meshNode.isMesh || !meshNode.geometry) {
+          return;
+        }
+
+        if (!meshNode.geometry.boundingBox) {
+          meshNode.geometry.computeBoundingBox();
+        }
+
+        if (!meshNode.geometry.boundingBox) {
+          return;
+        }
+
+        robotMeshBounds.current
+          .copy(meshNode.geometry.boundingBox)
+          .applyMatrix4(meshNode.matrixWorld);
+
+        const intersects =
+          object.type === "sphere"
+            ? robotMeshBounds.current.intersectsSphere(objectSphere.current)
+            : robotMeshBounds.current.intersectsBox(objectBounds.current);
+
+        if (!intersects) {
+          return;
+        }
+
+        isCollisionExpected = true;
+        robotMeshBounds.current.clampPoint(
+          objectPos.current,
+          closestOnRobot.current,
+        );
+        const distance = closestOnRobot.current.distanceTo(objectPos.current);
+
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          collisionCenter.current.copy(closestOnRobot.current);
+          closestRadius = Math.max(half + COLLISION_CONTACT_EPSILON, 0.1);
+        }
+      });
+
+      if (isCollisionExpected) {
+        break;
+      }
+    }
+
+    if (isCollisionExpected) {
+      for (const material of hologramMaterialsRef.current) {
+        enableHologram(material);
+      }
+      if (Number.isFinite(closestDistance)) {
+        setHologramCircleCenter(collisionCenter.current);
+      } else {
+        setHologramCircleCenter(objectPos.current);
+      }
+      setHologramCircleRadius(closestRadius);
+      collisionStateRef.current = true;
+      return;
+    }
+
+    if (collisionStateRef.current) {
+      for (const material of hologramMaterialsRef.current) {
+        disableHologram(material);
+      }
+      collisionStateRef.current = false;
+    }
+  });
+
+  return null;
+}
+
 export default function Scene() {
   const cameraControlsRef = useRef<InstanceType<typeof CameraControls>>(null);
   const [ikDragging, setIkDragging] = useState(false);
@@ -56,6 +301,7 @@ export default function Scene() {
   const [initialJointValues, setInitialJointValues] = useState<
     Record<string, number>
   >({});
+  const [objects, setObjects] = useState<ScenePrimitiveObject[]>([]);
 
   const handleRobotLoad = (model: ThreeJSURDFModel) => {
     setRobotModel(model);
@@ -107,6 +353,33 @@ export default function Scene() {
           jointValues={jointValues}
         />
 
+        <RobotCollisionShaderController
+          robotModel={robotModel}
+          objects={objects}
+        />
+
+        {objects.map((object) => (
+          <mesh
+            key={object.id}
+            position={object.position}
+            castShadow
+            receiveShadow
+          >
+            {object.type === "box" && (
+              <boxGeometry args={[object.size, object.size, object.size]} />
+            )}
+            {object.type === "sphere" && (
+              <sphereGeometry args={[object.size / 2, 24, 24]} />
+            )}
+            {object.type === "cylinder" && (
+              <cylinderGeometry
+                args={[object.size / 2, object.size / 2, object.size, 24]}
+              />
+            )}
+            <meshStandardMaterial color={object.color} />
+          </mesh>
+        ))}
+
         <gridHelper args={[200, 200]} />
       </Canvas>
 
@@ -129,6 +402,24 @@ export default function Scene() {
             robotModel.setJointValues(resetValues);
             robotModel.updateMatrixWorld(true);
           }
+        }}
+      />
+
+      <ObjectAddPanel
+        objects={objects}
+        onAddObject={(newObject) => {
+          const id =
+            typeof crypto !== "undefined" && "randomUUID" in crypto
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+          setObjects((prev) => [...prev, { ...newObject, id }]);
+        }}
+        onRemoveObject={(id) => {
+          setObjects((prev) => prev.filter((object) => object.id !== id));
+        }}
+        onClearObjects={() => {
+          setObjects([]);
         }}
       />
     </div>

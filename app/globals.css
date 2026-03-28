@@ -22,3 +22,27 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.scrollbar-dark {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a3a #111111;
+}
+
+.scrollbar-dark::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.scrollbar-dark::-webkit-scrollbar-track {
+  background: #111111;
+}
+
+.scrollbar-dark::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 9999px;
+  border: 2px solid #111111;
+}
+
+.scrollbar-dark::-webkit-scrollbar-thumb:hover {
+  background: #4a4a4a;
+}
