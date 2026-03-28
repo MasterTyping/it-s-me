@@ -3334,10 +3334,11 @@ three-stdlib@^2.35.6:
     fflate "^0.6.9"
     potpack "^1.0.1"
 
-"three-urdf-loader@file:./three-urdf-loader-v0.0.37.tgz":
-  version "0.0.37"
-  resolved "file:./three-urdf-loader-v0.0.37.tgz#c00e3a3dfa75eddd2bcdf4084fcce031ebd1cef5"
+"three-urdf-loader@file:./three-urdf-loader-v0.0.43.tgz":
+  version "0.0.43"
+  resolved "file:./three-urdf-loader-v0.0.43.tgz#7204d73e05ee79f22b1ab466bb7aacbfe6f9cda9"
   dependencies:
+    "@react-three/drei" "^10.7.7"
     node-fetch "^3.3.2"
     tslib "^2.8.1"
     xml2js "^0.6.2"
