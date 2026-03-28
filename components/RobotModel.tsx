@@ -169,41 +169,8 @@ export function RobotMesh({
           onSolve={handleSolve}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
+          followEndEffectorWhileDragging={true}
         />
-      )}
-
-      {/* 로딩 상태 정보 */}
-      {isLoading && (
-        <group name="debug-loading">
-          <mesh position={[0, 2, 0]}>
-            <boxGeometry args={[0.5, 0.5, 0.5]} />
-            <meshBasicMaterial color={0x00ff00} transparent opacity={0.5} />
-          </mesh>
-        </group>
-      )}
-
-      {/* IK 드래그 상태 시각화 */}
-      {isDragging && ikResult && (
-        <group name="debug-ik-state">
-          {ikResult.success && (
-            <mesh position={[0, 1, 0]}>
-              <sphereGeometry args={[0.1, 16, 16]} />
-              <meshBasicMaterial color={0x00ff00} wireframe />
-            </mesh>
-          )}
-        </group>
-      )}
-
-      {/* 디버그 정보 */}
-      {process.env.NODE_ENV === "development" && (
-        <group name="debug-info">
-          {error && (
-            <mesh position={[0, 3, 0]}>
-              <boxGeometry args={[0.5, 0.5, 0.5]} />
-              <meshBasicMaterial color={0xff0000} />
-            </mesh>
-          )}
-        </group>
       )}
     </>
   );
