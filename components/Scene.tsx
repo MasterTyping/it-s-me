@@ -1,28 +1,28 @@
-"use client";
+'use client';
 
-import { Canvas } from "@react-three/fiber";
-import { PerspectiveCamera, CameraControls } from "@react-three/drei";
-import { useEffect, useRef, useState } from "react";
-import { useFrame } from "@react-three/fiber";
-import { Box3, Material, Mesh, PCFShadowMap, Sphere, Vector3 } from "three";
-import { IKSolveResult, ThreeJSURDFModel } from "three-urdf-loader";
-import { RobotMesh } from "./RobotModel";
+import { Canvas } from '@react-three/fiber';
+import { PerspectiveCamera, CameraControls } from '@react-three/drei';
+import { useEffect, useRef, useState } from 'react';
+import { useFrame } from '@react-three/fiber';
+import { Box3, Material, Mesh, PCFShadowMap, Sphere, Vector3 } from 'three';
+import { IKSolveResult, ThreeJSURDFModel } from 'three-urdf-loader';
+import { RobotMesh } from './RobotModel';
 import {
   ObjectAddPanel,
   ScenePrimitiveObject,
-} from "./UI/panel/ObjectAddPanel";
-import { RobotInfoPanel } from "./UI/panel/RobotInfoPanel";
+} from './UI/panel/ObjectAddPanel';
+import { RobotInfoPanel } from './UI/panel/RobotInfoPanel';
 import {
   onBeforeCompileHologram,
   setHologramCircleCenter,
   setHologramCircleRadius,
   updateHologramTime,
-} from "../shader/scanline";
+} from '../shader/scanline';
 
-const END_EFFECTOR_NAME = "kuka_arm_7_link";
+const END_EFFECTOR_NAME = 'kuka_arm_7_link';
 const DEFAULT_COLLISION_CONTACT_EPSILON = 0.03;
 
-type CollisionLinkScope = "all" | "endEffector";
+type CollisionLinkScope = 'all' | 'endEffector';
 
 function cloneJointValues(
   values: Record<string, number>,
@@ -32,10 +32,10 @@ function cloneJointValues(
 
 function clamp(value: number, min?: number, max?: number): number {
   let next = value;
-  if (typeof min === "number") {
+  if (typeof min === 'number') {
     next = Math.max(next, min);
   }
-  if (typeof max === "number") {
+  if (typeof max === 'number') {
     next = Math.min(next, max);
   }
   return next;
@@ -46,9 +46,9 @@ function buildInitialPose(model: ThreeJSURDFModel): Record<string, number> {
 
   for (const joint of model.modelInfo.joints) {
     if (
-      joint.type !== "revolute" &&
-      joint.type !== "prismatic" &&
-      joint.type !== "continuous"
+      joint.type !== 'revolute' &&
+      joint.type !== 'prismatic' &&
+      joint.type !== 'continuous'
     ) {
       continue;
     }
@@ -76,8 +76,8 @@ type HologramMaterial = Material & {
     _hologramEnabled?: boolean;
     _originalOnBeforeCompile?:
       | ((shaderObject: any, renderer: any) => void)
-      | null;
-    _originalProgramCacheKey?: (() => string) | null;
+      | undefined;
+    _originalProgramCacheKey?: (() => string) | undefined;
   };
 };
 
@@ -89,7 +89,7 @@ function enableHologram(material: HologramMaterial) {
   material.userData._originalOnBeforeCompile = material.onBeforeCompile;
   material.userData._originalProgramCacheKey = material.customProgramCacheKey;
   material.onBeforeCompile = onBeforeCompileHologram;
-  material.customProgramCacheKey = () => "scanline-hologram-v1";
+  material.customProgramCacheKey = () => 'scanline-hologram-v1';
   material.userData._hologramEnabled = true;
   material.needsUpdate = true;
 }
@@ -102,7 +102,10 @@ function disableHologram(material: HologramMaterial) {
   material.onBeforeCompile =
     material.userData._originalOnBeforeCompile ?? (() => {});
   material.customProgramCacheKey =
-    material.userData._originalProgramCacheKey ?? undefined;
+    material.userData._originalProgramCacheKey ??
+    (() => {
+      return '';
+    });
   material.userData._hologramEnabled = false;
   material.needsUpdate = true;
 }
@@ -126,7 +129,7 @@ function collectRobotHologramMaterials(
       const maybe = material as Partial<HologramMaterial>;
       if (
         maybe &&
-        typeof maybe.onBeforeCompile === "function" &&
+        typeof maybe.onBeforeCompile === 'function' &&
         maybe.userData
       ) {
         materials.add(maybe as HologramMaterial);
@@ -143,7 +146,7 @@ function collectCollisionMeshes(
   endEffectorName: string,
 ): Mesh[] {
   const root =
-    scope === "endEffector"
+    scope === 'endEffector'
       ? (robotModel.getLinkByName(endEffectorName) ?? robotModel)
       : robotModel;
   const meshes: Mesh[] = [];
@@ -239,10 +242,10 @@ function RobotCollisionShaderController({
       objectPos.current.set(...object.position);
       const half = object.size / 2;
 
-      if (object.type === "sphere") {
+      if (object.type === 'sphere') {
         objectSphere.current.center.copy(objectPos.current);
         objectSphere.current.radius = half + collisionContactEpsilon;
-      } else if (object.type === "box") {
+      } else if (object.type === 'box') {
         const expandedHalf = half + collisionContactEpsilon;
         objectBounds.current.min.set(
           objectPos.current.x - expandedHalf,
@@ -270,12 +273,20 @@ function RobotCollisionShaderController({
       }
 
       for (const meshNode of collisionMeshesRef.current) {
+        if (!meshNode.geometry.boundingBox) {
+          meshNode.geometry.computeBoundingBox();
+        }
+
+        if (!meshNode.geometry.boundingBox) {
+          continue;
+        }
+
         robotMeshBounds.current
           .copy(meshNode.geometry.boundingBox)
           .applyMatrix4(meshNode.matrixWorld);
 
         const intersects =
-          object.type === "sphere"
+          object.type === 'sphere'
             ? robotMeshBounds.current.intersectsSphere(objectSphere.current)
             : robotMeshBounds.current.intersectsBox(objectBounds.current);
 
@@ -344,7 +355,7 @@ export default function Scene() {
     DEFAULT_COLLISION_CONTACT_EPSILON,
   );
   const [collisionLinkScope, setCollisionLinkScope] =
-    useState<CollisionLinkScope>("all");
+    useState<CollisionLinkScope>('all');
 
   const handleRobotLoad = (model: ThreeJSURDFModel) => {
     setRobotModel(model);
@@ -411,13 +422,13 @@ export default function Scene() {
             castShadow
             receiveShadow
           >
-            {object.type === "box" && (
+            {object.type === 'box' && (
               <boxGeometry args={[object.size, object.size, object.size]} />
             )}
-            {object.type === "sphere" && (
+            {object.type === 'sphere' && (
               <sphereGeometry args={[object.size / 2, 24, 24]} />
             )}
-            {object.type === "cylinder" && (
+            {object.type === 'cylinder' && (
               <cylinderGeometry
                 args={[object.size / 2, object.size / 2, object.size, 24]}
               />
@@ -459,7 +470,7 @@ export default function Scene() {
         objects={objects}
         onAddObject={(newObject) => {
           const id =
-            typeof crypto !== "undefined" && "randomUUID" in crypto
+            typeof crypto !== 'undefined' && 'randomUUID' in crypto
               ? crypto.randomUUID()
               : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
